@@ -236,23 +236,53 @@ func (s *spanInner) Recordf(format string, args ...interface{}) {
 	if !s.hasVerboseSink() {
 		return
 	}
-	var str string
+	// If the span is redactable, we pay the cost of using the redaction
+	// library, otherwise we manually do a "coarse" redaction of the
+	// entire string to keep the non-redactable path fast.
+	// Currently we expect this cost to be paid on tenant spans only.
+	var str redact.RedactableString
 	if s.crdb.redactable {
-		str = string(redact.Sprintf(format, args...))
+		str = redact.Sprintf(format, args...)
 	} else {
-		str = fmt.Sprintf(format, args...)
+		// Optimistically build the message as a fully redacted string
+		// with markers at the start and end but then read through it
+		// see if there are markers inside we need to escape. If so, we
+		// will pay the cost of calling `redact.Sprintf` but we expect that
+		// to essentially not happen.
+		b := strings.Builder{}
+		b.Write(redact.StartMarker())
+		// TODO(davidh): Unhandled error here, not sure what I can do though...log it?
+		fmt.Fprintf(&b, format, args...)
+		b.Write(redact.EndMarker())
+		str = redact.RedactableString(b.String())
+
+		doEscape := false
+		// Ignore first and last index since we put markers there ourselves
+		for i := 1; i < len(format)-1; i++ {
+			if str[i] == redact.StartMarker()[0] || str[i] == redact.EndMarker()[0] {
+				doEscape = true
+				break
+			}
+		}
+		if doEscape {
+			// Override string and redact it if we find there was a marker in
+			// there This will only run if this particular message had a
+			// redaction start/end marker inside
+			str = redact.Sprintf("%s", s)
+		}
 	}
 	if s.ot.shadowSpan != nil {
 		// TODO(obs-inf): depending on the situation it may be more appropriate to
-		// redact the string here.
+		// redact the string here. Note that redaction markers are not stripped
+		// here either
 		// See:
 		// https://github.com/cockroachdb/cockroach/issues/58610#issuecomment-926093901
-		s.ot.shadowSpan.LogFields(otlog.String(tracingpb.LogMessageField, str))
+		s.ot.shadowSpan.LogFields(otlog.String(tracingpb.LogMessageField, string(str)))
 	}
 	if s.netTr != nil {
 		s.netTr.LazyPrintf(format, args)
 	}
-	s.crdb.record(tracingpb.MaybeRedactableString(str))
+	s.crdb.record(str)
 }
 
 // hasVerboseSink returns false if there is no reason to even evaluate Record

@@ -13,8 +13,6 @@ package server
 import (
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/util/tracing"
-	"github.com/cockroachdb/cockroach/pkg/util/tracing/tracingpb"
-	"github.com/cockroachdb/redact"
 )
 
 const sRedactedMarker = "verbose trace message redacted"
@@ -37,18 +35,7 @@ func maybeRedactRecording(tenID roachpb.TenantID, rec tracing.Recording) {
 			record := &sp.Logs[j]
 			for k := range record.Fields {
 				field := &record.Fields[k]
-
-				if !sp.RedactableLogs {
-					// If we're handling a span that does not support redactability, all
-					// the containing information will be stripped.
-					field.Value = sRedactedMarker
-				} else if field.Key != tracingpb.LogMessageField {
-					// We don't have any of these fields, but let's not take any
-					// chances (our dependencies might slip them in).
-					field.Value = sRedactedMarker
-				} else {
-					field.Value = tracingpb.MaybeRedactableString(redact.RedactableString(field.Value).Redact())
-				}
+				field.Value = field.Value.Redact()
 			}
 		}
 	}

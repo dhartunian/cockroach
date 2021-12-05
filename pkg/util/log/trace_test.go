@@ -130,7 +130,8 @@ func TestEventLogAndTrace(t *testing.T) {
 	sp.Finish()
 	el.Finish()
 
-	if err := tracing.TestingCheckRecordedSpans(sp.GetRecording(), `
+	recording := sp.GetRecording()
+	if err := tracing.TestingCheckRecordedSpans(recording, `
 		span: s
 			tags: _verbose=1
 			event: test3

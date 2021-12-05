@@ -670,14 +670,14 @@ func recordedSpansToTraceEvents(spans []tracingpb.RecordedSpan) []*serverpb.Trac
 				Time: entry.Time,
 			}
 			if len(entry.Fields) == 1 {
-				event.Message = entry.Fields[0].Value.StripMarkers(sp.RedactableLogs)
+				event.Message = entry.Fields[0].Value.StripMarkers()
 			} else {
 				buf.Reset()
 				for i, f := range entry.Fields {
 					if i != 0 {
 						buf.WriteByte(' ')
 					}
-					fmt.Fprintf(&buf, "%s:%v", f.Key, f.Value)
+					fmt.Fprintf(&buf, "%s:%v", f.Key, f.Value.StripMarkers())
 				}
 				event.Message = buf.String()
 			}
