@@ -296,6 +296,9 @@ export default function Debug() {
         />
       </PanelSection>
       <DebugTable heading="Even More Advanced Debugging">
+        <DebugTableRow title="Execute SQL!">
+          <DebugTableLink name="SQL Executor" url="#/sql" />
+        </DebugTableRow>
         <DebugTableRow title="Node Diagnostics">
           <DebugTableLink name="All Nodes" url="#/reports/nodes" />
           <DebugTableLink

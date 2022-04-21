@@ -66,7 +66,7 @@ module.exports = (env, argv) => {
     new WebpackBar({
       name: "db-console",
       color: "orange",
-      reporters: [ (env.WEBPACK_WATCH || env.WEBPACK_SERVE) ? "basic" : "fancy" ],
+      reporters: [env.WEBPACK_WATCH || env.WEBPACK_SERVE ? "basic" : "fancy"],
       profile: true,
     }),
   ];
@@ -214,6 +214,7 @@ module.exports = (env, argv) => {
     stats: "errors-only",
 
     devServer: {
+      host: "0.0.0.0",
       contentBase: path.join(__dirname, `dist${env.dist}`),
       index: "",
       proxy: {

@@ -78,6 +78,7 @@ import ActiveStatementDetails from "./views/statements/activeStatementDetailsCon
 import ActiveTransactionDetails from "./views/transactions/activeTransactionDetailsConnected";
 import "styl/app.styl";
 import { Tracez } from "src/views/tracez/tracez";
+import { ExecuteSQL } from "./views/sql/executeSql";
 
 // NOTE: If you are adding a new path to the router, and that path contains any
 // components that are personally identifying information, you MUST update the
@@ -301,7 +302,7 @@ export const App: React.FC<AppProps> = (props: AppProps) => {
                   path="/debug/hotranges/:node_id"
                   component={HotRanges}
                 />
-
+                <Route exact path="/sql" component={ExecuteSQL} />
                 <Route path="/raft">
                   <Raft>
                     <Switch>
