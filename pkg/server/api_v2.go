@@ -42,6 +42,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/cockroachdb/cockroach/pkg/base"
 	"github.com/cockroachdb/cockroach/pkg/security/username"
 	"github.com/cockroachdb/cockroach/pkg/server/serverpb"
 	"github.com/cockroachdb/cockroach/pkg/server/telemetry"
@@ -90,23 +91,39 @@ type apiV2Server struct {
 	mux              *mux.Router
 }
 
+type apiV2ServerOpts struct {
+	cfg       *base.Config
+	sqlServer *SQLServer
+	admin     *adminServer
+	// TODO(davidh): replace all usages of this with interface methods
+	status           *statusServer
+	promRuleExporter *metric.PrometheusRuleExporter
+}
+
 // newAPIV2Server returns a new apiV2Server.
-func newAPIV2Server(ctx context.Context, s *Server) *apiV2Server {
-	authServer := newAuthenticationV2Server(ctx, s, apiV2Path)
+func newAPIV2Server(ctx context.Context, opts *apiV2ServerOpts) *apiV2Server {
+	authServer := newAuthenticationV2Server(ctx, opts.cfg, opts.sqlServer, apiV2Path)
 	innerMux := mux.NewRouter()
 
 	authMux := newAuthenticationV2Mux(authServer, innerMux)
 	outerMux := mux.NewRouter()
 	a := &apiV2Server{
-		admin:            s.admin,
+		admin:            opts.admin,
 		authServer:       authServer,
-		status:           s.status,
+		status:           opts.status,
 		mux:              outerMux,
-		promRuleExporter: s.promRuleExporter,
+		promRuleExporter: opts.promRuleExporter,
 	}
 	a.registerRoutes(innerMux, authMux)
 	return a
 }
+
+//type APIV2Server interface {
+//	ListSessions
+//	ListNodes
+//	ListNodeRanges
+//	ListHotRanges
+//}
 
 // registerRoutes registers endpoints under the current API server.
 func (a *apiV2Server) registerRoutes(innerMux *mux.Router, authMux http.Handler) {

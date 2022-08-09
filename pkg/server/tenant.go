@@ -289,6 +289,26 @@ func startTenantInternal(
 
 	httpServer.handleHealth(gwMux)
 
+	adminServer := newAdminServer(&Server{
+		stopper: args.stopper,
+		db:      args.db,
+		cfg: Config{
+			BaseConfig: *args.BaseConfig,
+		},
+	}, adminAuthzCheck, args.circularInternalExecutor)
+
+	// TODO(davidh): Here are the remaining pieces to do before shipping apiv2 on tenants
+	// 1. Create high level interface for all APIV2 endpoints
+	// 2. Replace existing routing with methods from interface
+	// 3. Implement subset of interface in tenant.
+	apiServer := newAPIV2Server(ctx, &apiV2ServerOpts{
+		cfg:              baseCfg.Config,
+		sqlServer:        s,
+		admin:            adminServer,
+		status:           nil,
+		promRuleExporter: nil,
+	})
+
 	// TODO(knz): Add support for the APIv2 tree here.
 	if err := httpServer.setupRoutes(ctx,
 		authServer,      /* authnServer */
@@ -297,7 +317,7 @@ func startTenantInternal(
 		args.runtime,    /* runtimeStatSampler */
 		gwMux,           /* handleRequestsUnauthenticated */
 		debugServer,     /* handleDebugUnauthenticated */
-		nil,             /* apiServer */
+		apiServer,       /* apiServer */
 	); err != nil {
 		return nil, nil, nil, "", "", err
 	}
