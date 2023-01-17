@@ -189,45 +189,23 @@ func (n TenantName) IsValid() error {
 // updates it if needed. This facilitates some
 // observability use cases where we need to tag data
 // by tenant name.
-type TenantNameContainer struct {
-	syncutil.Mutex
-
-	// tenantName is the currently active name for this
-	// tenantContainer. It may be updated at runtime and
-	// should be accessed dynamically via `Get` or a
-	// consumer can subscribe to updates via `AddCallback`.
-	tenantName TenantName
-
-	// updateCallbacks are executed when `Set` is called
-	// with a new TenantName. Callbacks *must not* reference
-	// this container since the lock will be held until all
-	// callbacks finish executing.
-	updateCallbacks []func(TenantName)
-}
+type TenantNameContainer syncutil.AtomicString
 
 func NewTenantNameContainer(name TenantName) *TenantNameContainer {
 	t := &TenantNameContainer{}
-	t.tenantName = name
+	t.Set(name)
 	return t
 }
 
 func (c *TenantNameContainer) Set(name TenantName) {
-	c.Lock()
-	defer c.Unlock()
-	c.tenantName = name
-	for _, f := range c.updateCallbacks {
-		f(c.tenantName)
-	}
-}
-
-func (c *TenantNameContainer) AddCallback(f func(TenantName)) {
-	c.Lock()
-	defer c.Unlock()
-	c.updateCallbacks = append(c.updateCallbacks, f)
+	(*syncutil.AtomicString)(c).Set(string(name))
 }
 
 func (c *TenantNameContainer) Get() TenantName {
-	c.Lock()
-	defer c.Unlock()
-	return c.tenantName
+	return TenantName(c.String())
+}
+
+// String implements the fmt.Strinter interface.
+func (c *TenantNameContainer) String() string {
+	return (*syncutil.AtomicString)(c).Get()
 }

@@ -212,10 +212,7 @@ func (mr *MetricsRecorder) AddNode(
 	nodeIDGauge := metric.NewGauge(metadata)
 	nodeIDGauge.Update(int64(desc.NodeID))
 	reg.AddMetric(nodeIDGauge)
-	reg.AddLabel("tenant", string(mr.tenantNameContainer.Get()))
-	mr.tenantNameContainer.AddCallback(func(name roachpb.TenantName) {
-		reg.UpdateLabel("tenant", string(name))
-	})
+	reg.AddLabel("tenant", mr.tenantNameContainer)
 }
 
 // AddStore adds the Registry from the provided store as a store-level registry
