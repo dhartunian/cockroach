@@ -109,7 +109,7 @@ type SQLServerWrapper struct {
 	eventsExporter obs.EventsExporterInterface
 	stopper        *stop.Stopper
 
-	debug http.Handler
+	debug *debug.Server
 
 	// pgL is the SQL listener.
 	pgL net.Listener
@@ -411,25 +411,13 @@ func newTenantServer(
 	sStatus.baseStatusServer.sqlServer = sqlServer
 	sAdmin.sqlServer = sqlServer
 
-	var innerDebugServer debug.IServer
-	if args.SystemDebugServer != nil {
-		innerDebugServer = args.SystemDebugServer
-	} else {
-		// Separate-process tenant server can initialize
-		// its own debug server.
-		innerDebugServer = debug.NewServer(
-			baseCfg.AmbientCtx,
-			args.Settings,
-			sqlServer.pgServer.HBADebugFn(),
-			sqlServer.execCfg.SQLStatusServer,
-			nil, /* serverTickleFn */
-			&tenantcapabilitiesauthorizer.AllowEverythingAuthorizer{},
-		)
-	}
-
-	debugServer := debug.NewTenantDelegatingServer(
-		innerDebugServer,
-		args.SQLConfig.TenantID,
+	// Create the debug API server.
+	debugServer := debug.NewServer(
+		baseCfg.AmbientCtx,
+		args.Settings,
+		sqlServer.pgServer.HBADebugFn(),
+		sqlServer.execCfg.SQLStatusServer,
+		nil, /* serverTickleFn */
 	)
 
 	return &SQLServerWrapper{
