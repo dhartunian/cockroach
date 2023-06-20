@@ -72,66 +72,21 @@ type Server struct {
 	authorizer tenantcapabilities.Authorizer
 }
 
-// IServer allows the tenantDelegatingServer to be used in both
-// server.go and tenant.go to setup the system tenant and app
-// tenant's debug servers. This allows us to maintain a single
-// code path for both implementations.
-type IServer interface {
-	http.Handler
-
-	RegisterWorkloadCollector(stores *kvserver.Stores) error
-	RegisterEngines(specs []base.StoreSpec, engines []storage.Engine) error
-	RegisterClosedTimestampSideTransport(sender *sidetransport.Sender, receiver sidetransportReceiver)
-}
-
-var _ IServer = &Server{}
-var _ IServer = &tenantDelegatingServer{}
-
 type serverTickleFn = func(ctx context.Context, name roachpb.TenantName) error
 
-type tenantDelegatingServer struct {
-	systemDebugServer IServer
-	tenantID          roachpb.TenantID
+// RouteTenant FIXME DOCSTRING
+func RouteTenant(s http.Handler, tid roachpb.TenantID) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// Only set tenantID when we don't have a valid one, or it's set to system.
+		// This ensures that multiple delegations of the system server don't each
+		// override the tenantID set at the outermost call layer.
+		requestTenant, err := getTenantIDFromContext(req.Context())
+		if err != nil || requestTenant.IsSystem() {
+			req = req.WithContext(withTenantID(req.Context(), tid))
+		}
+		s.ServeHTTP(w, req)
+	})
 }
-
-// RegisterWorkloadCollector implements IServer and delegates to the system server
-func (t tenantDelegatingServer) RegisterWorkloadCollector(stores *kvserver.Stores) error {
-	return t.systemDebugServer.RegisterWorkloadCollector(stores)
-}
-
-// RegisterEngines implements IServer and delegates to the system server
-func (t tenantDelegatingServer) RegisterEngines(
-	specs []base.StoreSpec, engines []storage.Engine,
-) error {
-	return t.systemDebugServer.RegisterEngines(specs, engines)
-}
-
-// RegisterClosedTimestampSideTransport implements IServer and delegates to the system server
-func (t tenantDelegatingServer) RegisterClosedTimestampSideTransport(
-	sender *sidetransport.Sender, receiver sidetransportReceiver,
-) {
-	t.systemDebugServer.RegisterClosedTimestampSideTransport(sender, receiver)
-}
-
-func (t tenantDelegatingServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	// Only set tenantID when we don't have a valid one, or it's set to system.
-	// This ensures that multiple delegations of the system server don't each
-	// override the tenantID set at the outermost call layer.
-	requestTenant, err := getTenantIDFromContext(req.Context())
-	if err != nil || requestTenant.IsSystem() {
-		req = req.WithContext(withTenantID(req.Context(), t.tenantID))
-	}
-	t.systemDebugServer.ServeHTTP(w, req)
-}
-
-func NewTenantDelegatingServer(systemDebugServer IServer, tenantID roachpb.TenantID) IServer {
-	return &tenantDelegatingServer{
-		systemDebugServer: systemDebugServer,
-		tenantID:          tenantID,
-	}
-}
-
-var _ http.Handler = &tenantDelegatingServer{}
 
 // NewServer sets up a debug server.
 func NewServer(

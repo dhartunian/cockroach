@@ -411,13 +411,13 @@ func newTenantServer(
 	sStatus.baseStatusServer.sqlServer = sqlServer
 	sAdmin.sqlServer = sqlServer
 
-	var innerDebugServer debug.IServer
+	var debugServer *debug.Server
 	if args.SystemDebugServer != nil {
-		innerDebugServer = args.SystemDebugServer
+		debugServer = args.SystemDebugServer
 	} else {
 		// Separate-process tenant server can initialize
 		// its own debug server.
-		innerDebugServer = debug.NewServer(
+		debugServer = debug.NewServer(
 			baseCfg.AmbientCtx,
 			args.Settings,
 			sqlServer.pgServer.HBADebugFn(),
@@ -426,11 +426,6 @@ func newTenantServer(
 			&tenantcapabilitiesauthorizer.AllowEverythingAuthorizer{},
 		)
 	}
-
-	debugServer := debug.NewTenantDelegatingServer(
-		innerDebugServer,
-		args.SQLConfig.TenantID,
-	)
 
 	return &SQLServerWrapper{
 		cfg: args.BaseConfig,
@@ -454,7 +449,7 @@ func newTenantServer(
 		eventsExporter:  args.eventsExporter,
 		stopper:         args.stopper,
 
-		debug: debugServer,
+		debug: debug.RouteTenant(debugServer, args.SQLConfig.TenantID),
 
 		pgPreServer: pgPreServer,
 

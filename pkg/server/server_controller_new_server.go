@@ -185,7 +185,7 @@ func makeSharedProcessTenantServerConfig(
 	kvServerInfo LocalKVServerInfo,
 	stopper *stop.Stopper,
 	nodeMetricsRecorder *status.MetricsRecorder,
-	debugServer debug.IServer,
+	debugServer *debug.Server,
 ) (baseCfg BaseConfig, sqlCfg SQLConfig, err error) {
 	st := cluster.MakeClusterSettings()
 

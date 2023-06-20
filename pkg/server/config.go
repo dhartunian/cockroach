@@ -531,7 +531,7 @@ type SQLConfig struct {
 
 	// SystemDebugServer is set if the sql configuration will be running in a shared
 	// process model, allowing for process debugging if granted by a tenant capability.
-	SystemDebugServer debug.IServer
+	SystemDebugServer *debug.Server
 }
 
 // LocalKVServerInfo is used to group information about the local KV server

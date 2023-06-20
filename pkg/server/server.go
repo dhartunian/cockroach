@@ -178,7 +178,7 @@ type Server struct {
 	stopper        *stop.Stopper
 	stopTrigger    *stopTrigger
 
-	debug          debug.IServer
+	debug          *debug.Server
 	kvProber       *kvprober.Prober
 	inspectzServer *inspectz.Server
 
@@ -1218,25 +1218,22 @@ func NewServer(cfg Config, stopper *stop.Stopper) (*Server, error) {
 	drain.serverCtl = sc
 
 	// Create the debug API server.
-	debugServer := debug.NewTenantDelegatingServer(
-		debug.NewServer(
-			cfg.BaseConfig.AmbientCtx,
-			st,
-			sqlServer.pgServer.HBADebugFn(),
-			sqlServer.execCfg.SQLStatusServer,
-			// TODO(knz): Remove this once
-			// https://github.com/cockroachdb/cockroach/issues/84585 is
-			// implemented.
-			func(ctx context.Context, name roachpb.TenantName) error {
-				d, err := sc.getServer(ctx, name)
-				if err != nil {
-					return err
-				}
-				return errors.Newf("server found with type %T", d)
-			},
-			authorizer,
-		),
-		roachpb.SystemTenantID,
+	debugServer := debug.NewServer(
+		cfg.BaseConfig.AmbientCtx,
+		st,
+		sqlServer.pgServer.HBADebugFn(),
+		sqlServer.execCfg.SQLStatusServer,
+		// TODO(knz): Remove this once
+		// https://github.com/cockroachdb/cockroach/issues/84585 is
+		// implemented.
+		func(ctx context.Context, name roachpb.TenantName) error {
+			d, err := sc.getServer(ctx, name)
+			if err != nil {
+				return err
+			}
+			return errors.Newf("server found with type %T", d)
+		},
+		authorizer,
 	)
 
 	recoveryServer := loqrecovery.NewServer(
@@ -1971,8 +1968,8 @@ func (s *Server) PreStart(ctx context.Context) error {
 		s.recorder,        /* metricSource */
 		s.runtime,         /* runtimeStatsSampler */
 		gwMux,             /* handleRequestsUnauthenticated */
-		s.debug,           /* handleDebugUnauthenticated */
-		s.inspectzServer,  /* handleInspectzUnauthenticated */
+		debug.RouteTenant(s.debug, roachpb.SystemTenantID), /* handleDebugUnauthenticated */
+		s.inspectzServer, /* handleInspectzUnauthenticated */
 		newAPIV2Server(ctx, &apiV2ServerOpts{
 			admin:            s.admin,
 			status:           s.status,
