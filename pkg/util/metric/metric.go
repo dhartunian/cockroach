@@ -346,21 +346,21 @@ func newHistogram(
 		Metadata: meta,
 		cum:      cum,
 	}
-	h.windowed.Ticker = tick.NewTicker(
+	h.Ticker = tick.NewTicker(
 		now(),
 		// We want to divide the total window duration by the number of windows
 		// because we need to rotate the windows at uniformly distributed
 		// intervals within a histogram's total duration.
 		duration/WindowedHistogramWrapNum,
 		func() {
-			h.windowed.Lock()
-			defer h.windowed.Unlock()
-			if h.windowed.cur.Load() != nil {
-				h.windowed.prev.Store(h.windowed.cur.Load())
+			h.Lock()
+			defer h.Unlock()
+			if h.cur.Load() != nil {
+				h.prev.Store(h.cur.Load())
 			}
-			h.windowed.cur.Store(prometheus.NewHistogram(opts))
+			h.cur.Store(prometheus.NewHistogram(opts))
 		})
-	h.windowed.Ticker.OnTick()
+	h.Ticker.OnTick()
 	return h
 }
 
@@ -376,9 +376,9 @@ var _ IHistogram = (*Histogram)(nil)
 //
 // New buckets are created using TestHistogramBuckets.
 type Histogram struct {
-	Metadata
-	cum prometheus.HistogramInternal
-
+	cum  prometheus.HistogramInternal
+	cur  atomic.Value
+	prev atomic.Value
 	// TODO(obs-inf): the way we implement windowed histograms is not great.
 	// We could "just" double the rotation interval (so that the histogram really
 	// collects for 20s when we expect to persist the contents every 10s).
@@ -386,11 +386,10 @@ type Histogram struct {
 	// atomically with collecting its contents, but that is now how we have set
 	// it up right now. It should be doable though, since there is only one
 	// consumer of windowed histograms - our internal timeseries system.
-	windowed struct {
-		*tick.Ticker
-		syncutil.Mutex
-		prev, cur atomic.Value
-	}
+
+	syncutil.Mutex
+	*tick.Ticker
+	Metadata
 }
 
 type IHistogram interface {
@@ -416,7 +415,7 @@ type IHistogram interface {
 // fix and should be expected to be removed.
 // TODO(obs-infra): remove this once pkg/util/aggmetric is merged with this package.
 func (h *Histogram) NextTick() time.Time {
-	return h.windowed.NextTick()
+	return h.NextTick()
 }
 
 // Tick triggers a tick of this Histogram, regardless of whether we've passed
@@ -425,7 +424,18 @@ func (h *Histogram) NextTick() time.Time {
 // as part of the public API.
 // TODO(obs-infra): remove this once pkg/util/aggmetric is merged with this package.
 func (h *Histogram) Tick() {
-	h.windowed.Tick()
+	h.Tick()
+}
+
+func (h *Histogram) FindBucket(v float64) int {
+	return h.cum.FindBucket(v)
+}
+
+func RecordValueMultiple(v float64, b int, histograms ...*Histogram) {
+	for _, h := range histograms {
+		h.cum.ObserveInternal(v, b)
+		h.cur.Load().(prometheus.HistogramInternal).ObserveInternal(v, b)
+	}
 }
 
 // RecordValue adds the given value to the histogram.
@@ -434,7 +444,7 @@ func (h *Histogram) RecordValue(n int64) {
 	b := h.cum.FindBucket(v)
 	h.cum.ObserveInternal(v, b)
 
-	h.windowed.cur.Load().(prometheus.HistogramInternal).ObserveInternal(v, b)
+	h.cur.Load().(prometheus.HistogramInternal).ObserveInternal(v, b)
 }
 
 // GetType returns the prometheus type enum for this metric.
@@ -456,11 +466,11 @@ func (h *Histogram) CumulativeSnapshot() HistogramSnapshot {
 }
 
 func (h *Histogram) WindowedSnapshot() HistogramSnapshot {
-	h.windowed.Lock()
-	defer h.windowed.Unlock()
-	cur := h.windowed.cur.Load().(prometheus.Histogram)
+	h.Lock()
+	defer h.Unlock()
+	cur := h.cur.Load().(prometheus.Histogram)
 	// Can't cast here since prev might be nil.
-	prev := h.windowed.prev.Load()
+	prev := h.prev.Load()
 
 	curMetric := &prometheusgo.Metric{}
 	if err := cur.Write(curMetric); err != nil {
@@ -485,7 +495,7 @@ func (h *Histogram) GetMetadata() Metadata {
 // Inspect calls the closure.
 func (h *Histogram) Inspect(f func(interface{})) {
 	func() {
-		tick.MaybeTick(&h.windowed)
+		tick.MaybeTick(h)
 	}()
 	f(h)
 }
