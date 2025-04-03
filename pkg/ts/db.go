@@ -43,17 +43,6 @@ var TimeseriesStorageEnabled = settings.RegisterBoolSetting(
 	true,
 	settings.WithPublic)
 
-// Resolution10sStorageTTL defines the maximum age of data that will be retained
-// at the 10 second resolution. Data older than this is subject to being "rolled
-// up" into the 30 minute resolution and then deleted.
-var Resolution10sStorageTTL = settings.RegisterDurationSetting(
-	settings.SystemVisible, // currently used in DB Console.
-	"timeseries.storage.resolution_10s.ttl",
-	"the maximum age of time series data stored at the 10 second resolution. Data older than this "+
-		"is subject to rollup and deletion.",
-	resolution10sDefaultRollupThreshold,
-	settings.WithPublic)
-
 // Resolution30mStorageTTL defines the maximum age of data that will be
 // retained at the 30 minute resolution. Data older than this is subject to
 // deletion.
