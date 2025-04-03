@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cockroachdb/cockroach/pkg/testutils/skip"
 	_ "github.com/cockroachdb/cockroach/pkg/util/log" // for flags
 	"github.com/cockroachdb/cockroach/pkg/util/randutil"
 	"github.com/kr/pretty"
@@ -34,6 +35,9 @@ func testMarshal(t *testing.T, m json.Marshaler, exp string) {
 var emptyMetadata = Metadata{Name: ""}
 
 func TestGauge(t *testing.T) {
+
+	skip.WithIssue(t, 1000000, "https://github.com/cockroachdb/cockroach/issues/1000000")
+
 	g := NewGauge(emptyMetadata)
 	g.Update(10)
 	if v := g.Value(); v != 10 {
