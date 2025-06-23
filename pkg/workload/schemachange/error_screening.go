@@ -72,6 +72,12 @@ func (og *operationGenerator) tableHasRows(
 	return og.scanBool(ctx, tx, fmt.Sprintf(`SELECT EXISTS (SELECT * FROM %s)`, tableName.String()))
 }
 
+func (og *operationGenerator) scanInt(
+	ctx context.Context, tx pgx.Tx, query string, args ...interface{},
+) (i int, err error) {
+	return Scan[int](ctx, og, tx, query, args...)
+}
+
 func (og *operationGenerator) scanBool(
 	ctx context.Context, tx pgx.Tx, query string, args ...interface{},
 ) (b bool, err error) {
@@ -98,16 +104,8 @@ func (og *operationGenerator) fnExists(
 	)`, fnName, argTypes)
 }
 
-// tableHasDependencies reports whether the given table has any schema dependencies,
-// optionally excluding foreign keys and/or self-references.
-//
-// A dependency is ignored if:
-// 1. It is a foreign key and includeFKs is false.
-// 2. It is a self-dependency (i.e., the table depends on itself) and:
-// a) It is a foreign key, or
-// b) skipSelfRef is true (regardless of dependency type).
 func (og *operationGenerator) tableHasDependencies(
-	ctx context.Context, tx pgx.Tx, tableName *tree.TableName, includeFKs, skipSelfRef bool,
+	ctx context.Context, tx pgx.Tx, tableName *tree.TableName, includeFKs bool,
 ) (bool, error) {
 	fkFilter := ""
 	if !includeFKs {
@@ -125,18 +123,12 @@ func (og *operationGenerator) tableHasDependencies(
                             ns.oid = c.relnamespace
                      WHERE c.relname = $1 AND ns.nspname = $2
                 )
-           AND NOT (
-             fd.descriptor_id = fd.dependedonby_id
-             AND (
-               fd.dependedonby_type = 'fk'
-               OR $3::BOOL = true
-             )
-           )
+           AND fd.descriptor_id != fd.dependedonby_id
            AND fd.dependedonby_type != 'sequence'
            %s
        )
 	`, fkFilter)
-	return og.scanBool(ctx, tx, q, tableName.Object(), tableName.Schema(), skipSelfRef)
+	return og.scanBool(ctx, tx, q, tableName.Object(), tableName.Schema())
 }
 
 // columnRemovalWillDropFKBackingIndexes determines if dropping this column
@@ -1003,6 +995,66 @@ func (og *operationGenerator) constraintExists(
 	 )`, string(tableName), string(constraintName))
 }
 
+func (og *operationGenerator) rowsSatisfyFkConstraint(
+	ctx context.Context,
+	tx pgx.Tx,
+	parentTable *tree.TableName,
+	parentColumn *column,
+	childTable *tree.TableName,
+	childColumn *column,
+) (bool, error) {
+	// Self referential foreign key constraints are acceptable.
+	selfReferential, err := og.scanBool(ctx, tx,
+		`SELECT $1:::REGCLASS=$2:::REGCLASS`,
+		parentTable.String(), childTable.String())
+	if err != nil {
+		return false, err
+	}
+	if selfReferential && parentColumn.name == childColumn.name {
+		return true, nil
+	}
+
+	// Validate the parent table has rows.
+	childRows, err := og.scanInt(ctx, tx,
+		fmt.Sprintf(`
+SELECT count(*) FROM %s
+		`, childTable.String()),
+	)
+	if err != nil {
+		return false, err
+	}
+
+	// If child table is empty then no violation can exist.
+	if childRows == 0 {
+		return true, nil
+	}
+
+	q := fmt.Sprintf(`
+	  SELECT count(*)
+	    FROM %s as t1
+		  LEFT JOIN %s as t2
+				     ON t1.%s = t2.%s
+			WHERE t2.%s IS NOT NULL
+`, childTable.String(), parentTable.String(), childColumn.name.String(), parentColumn.name.String(), parentColumn.name.String())
+
+	joinTx, err := tx.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	numJoinRows, err := og.scanInt(ctx, joinTx, q)
+	if err != nil {
+		rbkErr := joinTx.Rollback(ctx)
+		// UndefinedFunction errors mean that the column type is not comparable.
+		if pgErr := new(pgconn.PgError); errors.As(err, &pgErr) &&
+			((pgcode.MakeCode(pgErr.Code) == pgcode.UndefinedFunction) ||
+				(pgcode.MakeCode(pgErr.Code) == pgcode.UndefinedColumn)) {
+			return false, rbkErr
+		}
+		return false, errors.WithSecondaryError(err, rbkErr)
+	}
+	return numJoinRows == childRows, joinTx.Commit(ctx)
+}
+
 var (
 	// regexpUnknownSchemaErr matches unknown schema errors with
 	// a descriptor ID, which will have the form: unknown schema "[123]"
@@ -1724,34 +1776,5 @@ func (og *operationGenerator) tableHasUniqueConstraintMutation(
 			FROM table_desc)
 			WHERE (m->>'direction')::STRING IN ('ADD', 'DROP')
 			AND (m->'index'->>'unique')::BOOL IS TRUE
-		);`, tableName)
-}
-
-// tableHasForeignKeyMutation determines if a table has any foreign key constraint
-// mutation ongoing. This means either being added or dropped.
-func (og *operationGenerator) tableHasForeignKeyMutation(
-	ctx context.Context, tx pgx.Tx, tableName *tree.TableName,
-) (bool, error) {
-	return og.scanBool(ctx, tx, `
-		WITH table_desc AS (
-			SELECT crdb_internal.pb_to_json(
-				'desc',
-				descriptor,
-				false
-			)->'table' as d
-			FROM system.descriptor
-			WHERE id = $1::REGCLASS
-		)
-		SELECT EXISTS (
-			SELECT * FROM (
-			SELECT jsonb_array_elements(
-				CASE WHEN d->'mutations' IS NULL
-				THEN '[]'::JSONB
-				ELSE d->'mutations'
-				END
-			) as m
-			FROM table_desc)
-			WHERE (m->>'direction')::STRING IN ('ADD', 'DROP')
-			AND (m->'constraint'->>'foreign_key') IS NOT NULL
 		);`, tableName)
 }

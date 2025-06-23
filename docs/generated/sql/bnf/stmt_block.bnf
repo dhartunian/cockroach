@@ -111,7 +111,6 @@ grant_stmt ::=
 	| 'GRANT' privileges 'ON' 'ALL' 'TABLES' 'IN' 'SCHEMA' schema_name_list 'TO' role_spec_list opt_with_grant_option
 	| 'GRANT' privileges 'ON' 'ALL' 'FUNCTIONS' 'IN' 'SCHEMA' schema_name_list 'TO' role_spec_list opt_with_grant_option
 	| 'GRANT' privileges 'ON' 'ALL' 'PROCEDURES' 'IN' 'SCHEMA' schema_name_list 'TO' role_spec_list opt_with_grant_option
-	| 'GRANT' privileges 'ON' 'ALL' 'ROUTINES' 'IN' 'SCHEMA' schema_name_list 'TO' role_spec_list opt_with_grant_option
 	| 'GRANT' 'SYSTEM' privileges 'TO' role_spec_list opt_with_grant_option
 
 prepare_stmt ::=
@@ -133,8 +132,6 @@ revoke_stmt ::=
 	| 'REVOKE' 'GRANT' 'OPTION' 'FOR' privileges 'ON' 'ALL' 'FUNCTIONS' 'IN' 'SCHEMA' schema_name_list 'FROM' role_spec_list
 	| 'REVOKE' privileges 'ON' 'ALL' 'PROCEDURES' 'IN' 'SCHEMA' schema_name_list 'FROM' role_spec_list
 	| 'REVOKE' 'GRANT' 'OPTION' 'FOR' privileges 'ON' 'ALL' 'PROCEDURES' 'IN' 'SCHEMA' schema_name_list 'FROM' role_spec_list
-	| 'REVOKE' privileges 'ON' 'ALL' 'ROUTINES' 'IN' 'SCHEMA' schema_name_list 'FROM' role_spec_list
-	| 'REVOKE' 'GRANT' 'OPTION' 'FOR' privileges 'ON' 'ALL' 'ROUTINES' 'IN' 'SCHEMA' schema_name_list 'FROM' role_spec_list
 	| 'REVOKE' 'SYSTEM' privileges 'FROM' role_spec_list
 	| 'REVOKE' 'GRANT' 'OPTION' 'FOR' 'SYSTEM' privileges 'FROM' role_spec_list
 
@@ -854,9 +851,7 @@ show_create_stmt ::=
 	'SHOW' 'CREATE' table_name opt_show_create_format_options
 	| 'SHOW' 'CREATE' 'ALL' 'SCHEMAS'
 	| 'SHOW' 'CREATE' 'ALL' 'TABLES'
-	| 'SHOW' 'CREATE' 'ALL' 'TRIGGERS'
 	| 'SHOW' 'CREATE' 'ALL' 'TYPES'
-	| 'SHOW' 'CREATE' 'ALL' 'ROUTINES'
 
 show_create_schedules_stmt ::=
 	'SHOW' 'CREATE' 'ALL' 'SCHEDULES'
@@ -1112,6 +1107,7 @@ unreserved_keyword ::=
 	| 'BIDIRECTIONAL'
 	| 'BINARY'
 	| 'BUCKET_COUNT'
+	| 'BUNDLE'
 	| 'BY'
 	| 'BYPASSRLS'
 	| 'CACHE'
@@ -1290,7 +1286,6 @@ unreserved_keyword ::=
 	| 'LOGICALLY'
 	| 'LOGIN'
 	| 'LOCALITY'
-	| 'LOGGED'
 	| 'LOOKUP'
 	| 'LOW'
 	| 'MATCH'
@@ -1301,6 +1296,7 @@ unreserved_keyword ::=
 	| 'MINUTE'
 	| 'MINVALUE'
 	| 'MODIFYCLUSTERSETTING'
+	| 'MODIFYSQLCLUSTERSETTING'
 	| 'MULTILINESTRING'
 	| 'MULTILINESTRINGM'
 	| 'MULTILINESTRINGZ'
@@ -1431,6 +1427,7 @@ unreserved_keyword ::=
 	| 'RESTRICTIVE'
 	| 'RESUME'
 	| 'RETENTION'
+	| 'RETRY'
 	| 'RETURN'
 	| 'RETURNS'
 	| 'REVISION_HISTORY'
@@ -1558,7 +1555,9 @@ unreserved_keyword ::=
 	| 'VIEW'
 	| 'VIEWACTIVITY'
 	| 'VIEWACTIVITYREDACTED'
+	| 'VIEWCLUSTERMETADATA'
 	| 'VIEWCLUSTERSETTING'
+	| 'VIEWDEBUG'
 	| 'VIRTUAL_CLUSTER_NAME'
 	| 'VIRTUAL_CLUSTER'
 	| 'VISIBLE'
@@ -1707,7 +1706,6 @@ alter_table_stmt ::=
 	| alter_rename_table_stmt
 	| alter_table_set_schema_stmt
 	| alter_table_locality_stmt
-	| alter_table_logged_stmt
 	| alter_table_owner_stmt
 
 alter_index_stmt ::=
@@ -2299,12 +2297,6 @@ alter_table_set_schema_stmt ::=
 alter_table_locality_stmt ::=
 	'ALTER' 'TABLE' relation_expr 'SET' locality
 	| 'ALTER' 'TABLE' 'IF' 'EXISTS' relation_expr 'SET' locality
-
-alter_table_logged_stmt ::=
-	'ALTER' 'TABLE' relation_expr 'SET' 'LOGGED'
-	| 'ALTER' 'TABLE' 'IF' 'EXISTS' relation_expr 'SET' 'LOGGED'
-	| 'ALTER' 'TABLE' relation_expr 'SET' 'UNLOGGED'
-	| 'ALTER' 'TABLE' 'IF' 'EXISTS' relation_expr 'SET' 'UNLOGGED'
 
 alter_table_owner_stmt ::=
 	'ALTER' 'TABLE' relation_expr 'OWNER' 'TO' role_spec
@@ -3225,7 +3217,6 @@ target_object_type ::=
 	| 'TYPES'
 	| 'SCHEMAS'
 	| 'FUNCTIONS'
-	| 'ROUTINES'
 
 alter_changefeed_cmd ::=
 	'ADD' changefeed_targets opt_with_options
@@ -3957,6 +3948,7 @@ bare_label_keywords ::=
 	| 'BOTH'
 	| 'BOX2D'
 	| 'BUCKET_COUNT'
+	| 'BUNDLE'
 	| 'BY'
 	| 'BYPASSRLS'
 	| 'CACHE'
@@ -4193,7 +4185,6 @@ bare_label_keywords ::=
 	| 'LOCALTIME'
 	| 'LOCALTIMESTAMP'
 	| 'LOCKED'
-	| 'LOGGED'
 	| 'LOGICAL'
 	| 'LOGICALLY'
 	| 'LOGIN'
@@ -4207,6 +4198,7 @@ bare_label_keywords ::=
 	| 'MINVALUE'
 	| 'MODE'
 	| 'MODIFYCLUSTERSETTING'
+	| 'MODIFYSQLCLUSTERSETTING'
 	| 'MOVE'
 	| 'MULTILINESTRING'
 	| 'MULTILINESTRINGM'
@@ -4351,6 +4343,7 @@ bare_label_keywords ::=
 	| 'RESTRICTIVE'
 	| 'RESUME'
 	| 'RETENTION'
+	| 'RETRY'
 	| 'RETURN'
 	| 'RETURNS'
 	| 'REVISION_HISTORY'
@@ -4505,7 +4498,9 @@ bare_label_keywords ::=
 	| 'VIEW'
 	| 'VIEWACTIVITY'
 	| 'VIEWACTIVITYREDACTED'
+	| 'VIEWCLUSTERMETADATA'
 	| 'VIEWCLUSTERSETTING'
+	| 'VIEWDEBUG'
 	| 'VIRTUAL'
 	| 'VIRTUAL_CLUSTER_NAME'
 	| 'VIRTUAL_CLUSTER'
@@ -4558,10 +4553,8 @@ rowsfrom_list ::=
 	( rowsfrom_item ) ( ( ',' rowsfrom_item ) )*
 
 func_alias_clause ::=
-	alias_clause
-	| 'AS' '(' col_def_list ')'
-	| 'AS' table_alias_name '(' col_def_list ')'
-	| table_alias_name '(' col_def_list ')'
+	'AS' table_alias_name opt_col_def_list
+	| table_alias_name opt_col_def_list
 
 opt_asc_desc ::=
 	'ASC'
@@ -4858,8 +4851,8 @@ join_outer ::=
 rowsfrom_item ::=
 	func_expr_windowless opt_func_alias_clause
 
-col_def_list ::=
-	( col_def ) ( ( ',' col_def ) )*
+opt_col_def_list ::=
+	'(' col_def_list ')'
 
 group_by_item ::=
 	a_expr
@@ -5023,8 +5016,8 @@ create_as_col_qualification_elem ::=
 create_as_params ::=
 	( create_as_param ) ( ( ',' create_as_param ) )*
 
-col_def ::=
-	name typename
+col_def_list ::=
+	( col_def ) ( ( ',' col_def ) )*
 
 char_aliases ::=
 	'CHAR'
@@ -5081,6 +5074,10 @@ opt_partition_by ::=
 
 create_as_param ::=
 	column_name
+
+col_def ::=
+	name
+	| name typename
 
 col_qualification_elem ::=
 	'NOT' 'NULL'

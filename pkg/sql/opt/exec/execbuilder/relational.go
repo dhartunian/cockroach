@@ -414,8 +414,9 @@ func (b *Builder) maybeAnnotateWithEstimates(node exec.Node, e memo.RelExpr) {
 				// The first stat is the most recent full one.
 				var first int
 				for first < tab.StatisticCount() &&
-					tab.Statistic(first).IsPartial() ||
-					(tab.Statistic(first).IsForecast() && !b.evalCtx.SessionData().OptimizerUseForecasts) {
+					(tab.Statistic(first).IsPartial() ||
+						(tab.Statistic(first).IsMerged() && !b.evalCtx.SessionData().OptimizerUseMergedPartialStatistics) ||
+						(tab.Statistic(first).IsForecast() && !b.evalCtx.SessionData().OptimizerUseForecasts)) {
 					first++
 				}
 
@@ -2758,19 +2759,14 @@ func (b *Builder) buildLookupJoin(
 		lookupCols.Remove(join.ContinuationCol)
 	}
 
-	numInputCols := inputCols.MaxOrd() + 1
-	var lookupOrdinals exec.TableColumnOrdinalSet
+	lookupOrdinals, lookupColMap := b.getColumns(lookupCols, join.Table)
+
 	// leftAndRightCols are the columns used in expressions evaluated by this
 	// join.
-	leftAndRightCols := b.colOrdsAlloc.Copy(inputCols)
-	for i, rightOrd, n := 0, 0, md.Table(join.Table).ColumnCount(); i < n; i++ {
-		colID := join.Table.ColumnID(i)
-		if lookupCols.Contains(colID) {
-			lookupOrdinals.Add(i)
-			leftAndRightCols.Set(colID, rightOrd+numInputCols)
-			rightOrd++
-		}
-	}
+	leftAndRightCols := b.joinOutputMap(inputCols, lookupColMap)
+
+	// lookupColMap is no longer used, so it can be freed.
+	b.colOrdsAlloc.Free(lookupColMap)
 
 	// Create the output column mapping.
 	switch {

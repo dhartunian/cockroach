@@ -513,8 +513,7 @@ func TestAlterChangefeedDropTargetFamily(t *testing.T) {
 		sqlDB := sqlutils.MakeSQLRunner(s.DB)
 		sqlDB.Exec(t, `CREATE TABLE foo (a INT PRIMARY KEY, b STRING, FAMILY onlya (a), FAMILY onlyb (b))`)
 
-		testFeed := feed(t, f, `CREATE CHANGEFEED FOR foo FAMILY onlya, foo FAMILY onlyb`,
-			optOutOfMetamorphicEnrichedEnvelope{"requires families"})
+		testFeed := feed(t, f, `CREATE CHANGEFEED FOR foo FAMILY onlya, foo FAMILY onlyb`)
 		defer closeFeed(t, testFeed)
 
 		feed, ok := testFeed.(cdctest.EnterpriseTestFeed)

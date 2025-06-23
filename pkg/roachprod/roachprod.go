@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -31,6 +30,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/build"
 	"github.com/cockroachdb/cockroach/pkg/cli/exit"
 	"github.com/cockroachdb/cockroach/pkg/cmd/roachprod/grafana"
+	"github.com/cockroachdb/cockroach/pkg/cmd/roachtest/test"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/cloud"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/config"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/fluentbit"
@@ -45,7 +45,6 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachprod/vm/azure"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/vm/flagstub"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/vm/gce"
-	"github.com/cockroachdb/cockroach/pkg/roachprod/vm/ibm"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/vm/local"
 	"github.com/cockroachdb/cockroach/pkg/server/debug/replay"
 	"github.com/cockroachdb/cockroach/pkg/util/ctxgroup"
@@ -68,13 +67,6 @@ type MalformedClusterNameError struct {
 func (e *MalformedClusterNameError) Error() string {
 	return fmt.Sprintf("Malformed cluster name %s, %s. Did you mean one of %s", e.name, e.reason, e.suggestions)
 }
-
-// DefaultCockroachPath is the path where the binary passed to the
-// `--cockroach` flag will be made available in every node in the
-// cluster.
-// N.B. This constant is duplicated from roachtest to break build dependency.
-// Thus, any update should be reflected in both places.
-const DefaultCockroachPath = "./cockroach"
 
 // findActiveAccounts is a hook for tests to inject their own FindActiveAccounts
 // implementation. i.e. unit tests that don't want to actually access a provider.
@@ -824,7 +816,7 @@ func updatePrometheusTargets(
 	}
 
 	cl := promhelperclient.NewPromClient()
-	nodeIPPorts := promhelperclient.NodeTargets{}
+	nodeIPPorts := make(map[int][]*promhelperclient.NodeInfo)
 	nodeIPPortsMutex := syncutil.RWMutex{}
 	var wg sync.WaitGroup
 	for _, node := range c.Nodes {
@@ -1730,7 +1722,7 @@ func Create(
 			for _, provider := range o.CreateOpts.VMProviders {
 				// TODO(DarrylWong): support zfs on other providers, see: #123775.
 				// Once done, revisit all tests that set zfs to see if they can run on non GCE.
-				if !(provider == gce.ProviderName || provider == aws.ProviderName || provider == ibm.ProviderName) {
+				if !(provider == gce.ProviderName || provider == aws.ProviderName) {
 					return fmt.Errorf(
 						"creating a node with --filesystem=zfs is currently not supported in %q", provider,
 					)
@@ -1757,14 +1749,6 @@ func Create(
 	}
 	l.Printf("Created cluster %s; setting up SSH...", clusterName)
 	return SetupSSH(ctx, l, clusterName, false /* sync */)
-}
-
-func PopulateEtcHosts(ctx context.Context, l *logger.Logger, clusterName string) error {
-	c, err := GetClusterFromCache(l, clusterName)
-	if err != nil {
-		return err
-	}
-	return c.PopulateEtcHosts(ctx, l)
 }
 
 func Grow(
@@ -1867,10 +1851,6 @@ func GC(l *logger.Logger, dryrun bool) error {
 		return cloud.GCAzure(l, dryrun)
 	})
 
-	addOpFn(func() error {
-		return cloud.GCIBM(l, dryrun)
-	})
-
 	// ListCloud may fail for a provider, but we can still attempt GC on
 	// the clusters we do have.
 	cld, _ := cloud.ListCloud(l, vm.ListOptions{IncludeEmptyClusters: true, IncludeProviders: []string{gce.ProviderName}})
@@ -1964,11 +1944,6 @@ func InitProviders() map[string]string {
 			name:  azure.ProviderName,
 			init:  azure.Init,
 			empty: &azure.Provider{},
-		},
-		{
-			name:  ibm.ProviderName,
-			init:  ibm.Init,
-			empty: &ibm.Provider{},
 		},
 		{
 			name: local.ProviderName,
@@ -3032,73 +3007,39 @@ func FetchLogs(
 			if err != nil {
 				return err
 			}
-			// Found logs and corresponding nodes, which contain at least one log directory.
-			logDirs := make(map[string]struct{})
-			nodes := install.Nodes{}
 
+			logDirs := make(map[string]struct{})
 			for _, r := range results {
 				if r.Err != nil {
 					l.Printf("will not fetch logs for n%d due to error: %v", r.Node, r.Err)
-					continue
 				}
-				nodes = append(nodes, r.Node)
+
 				for _, logDir := range strings.Fields(r.Stdout) {
 					logDirs[logDir] = struct{}{}
 				}
 			}
-			if len(logDirs) == 0 {
-				l.Printf("no log directories found")
-				return nil
-			}
-			// For each found log directory, recursively scp its contents under the destination, prefixed by node id.
-			// E.g., n1's contents will show up under 1.unredacted, etc.
+
 			for logDir := range logDirs {
 				dirPath := filepath.Join(destination, logDir, "unredacted")
 				if err := os.MkdirAll(filepath.Dir(dirPath), 0755); err != nil {
 					return err
 				}
-				// Runs a recursive scp in parallel.
-				if err := c.Get(ctx, l, nodes, logDir /* src */, dirPath /* dest */); err != nil {
+
+				if err := c.Get(ctx, l, c.Nodes, logDir /* src */, dirPath /* dest */); err != nil {
 					l.Printf("failed to fetch log directory %s: %v", logDir, err)
 					if ctx.Err() != nil {
 						return errors.Wrap(err, "cluster.FetchLogs")
 					}
 				}
 			}
-			// Create a single redacted log.
-			if err := c.Run(ctx, l, l.Stdout, l.Stderr, install.WithNodes(nodes), "", fmt.Sprintf("mkdir -p logs/redacted && %s debug merge-logs --redact logs/*.log > logs/redacted/combined.log", DefaultCockroachPath)); err != nil {
+
+			if err := c.Run(ctx, l, l.Stdout, l.Stderr, install.WithNodes(c.Nodes), "", fmt.Sprintf("mkdir -p logs/redacted && %s debug merge-logs --redact logs/*.log > logs/redacted/combined.log", test.DefaultCockroachPath)); err != nil {
 				l.Printf("failed to redact logs: %v", err)
 				if ctx.Err() != nil {
 					return err
 				}
 			}
 			dest := filepath.Join(destination, "logs/cockroach.log")
-			return errors.Wrap(c.Get(ctx, l, nodes, "logs/redacted/combined.log" /* src */, dest), "cluster.FetchLogs")
+			return errors.Wrap(c.Get(ctx, l, c.Nodes, "logs/redacted/combined.log" /* src */, dest), "cluster.FetchLogs")
 		})
-}
-
-// FetchCertsDir downloads the certs directory from the cluster using `roachprod get`
-// and ensures the files are not world readable.
-func FetchCertsDir(
-	ctx context.Context, l *logger.Logger, clusterName, certsDir, destinationDir string,
-) error {
-	c, err := GetClusterFromCache(l, clusterName)
-	if err != nil {
-		return err
-	}
-
-	if err = c.Get(ctx, l, c.Nodes, certsDir, destinationDir); err != nil {
-		return err
-	}
-
-	// Need to prevent world readable files or lib/pq will complain.
-	return filepath.WalkDir(destinationDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return errors.Wrap(err, "walking localCertsDir failed")
-		}
-		if d.IsDir() {
-			return nil
-		}
-		return os.Chmod(path, 0600)
-	})
 }

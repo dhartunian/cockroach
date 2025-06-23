@@ -795,7 +795,7 @@ func (c *transientCluster) waitForNodeIDReadiness(
 			if err != nil {
 				return err
 			}
-			c.servers[idx].adminClient = conn.NewAdminClient()
+			c.servers[idx].adminClient = serverpb.NewAdminClient(conn)
 
 		}
 		break
@@ -1219,7 +1219,7 @@ func (c *transientCluster) startServerInternal(
 
 	c.servers[serverIdx] = serverEntry{
 		TestServerInterface: s,
-		adminClient:         conn.NewAdminClient(),
+		adminClient:         serverpb.NewAdminClient(conn),
 		nodeID:              nodeID,
 	}
 
