@@ -2758,19 +2758,14 @@ func (b *Builder) buildLookupJoin(
 		lookupCols.Remove(join.ContinuationCol)
 	}
 
-	numInputCols := inputCols.MaxOrd() + 1
-	var lookupOrdinals exec.TableColumnOrdinalSet
+	lookupOrdinals, lookupColMap := b.getColumns(lookupCols, join.Table)
+
 	// leftAndRightCols are the columns used in expressions evaluated by this
 	// join.
-	leftAndRightCols := b.colOrdsAlloc.Copy(inputCols)
-	for i, rightOrd, n := 0, 0, md.Table(join.Table).ColumnCount(); i < n; i++ {
-		colID := join.Table.ColumnID(i)
-		if lookupCols.Contains(colID) {
-			lookupOrdinals.Add(i)
-			leftAndRightCols.Set(colID, rightOrd+numInputCols)
-			rightOrd++
-		}
-	}
+	leftAndRightCols := b.joinOutputMap(inputCols, lookupColMap)
+
+	// lookupColMap is no longer used, so it can be freed.
+	b.colOrdsAlloc.Free(lookupColMap)
 
 	// Create the output column mapping.
 	switch {
@@ -3974,18 +3969,6 @@ func (b *Builder) buildVectorSearch(
 		return execPlan{}, colOrdMap{}, err
 	}
 	targetNeighborCount := uint64(search.TargetNeighborCount)
-
-	// Verify that the query vector and vector column have the same dimensions.
-	resolvedQueryVector, ok := queryVector.(*tree.DPGVector)
-	if !ok {
-		return execPlan{}, colOrdMap{}, errors.AssertionFailedf("expected vector type, got %T", queryVector)
-	}
-	queryVectorLen := int32(len(resolvedQueryVector.T))
-	vectorColumnType := index.VectorColumn().DatumType()
-	if queryVectorLen != vectorColumnType.Width() {
-		return execPlan{}, colOrdMap{}, pgerror.Newf(pgcode.DataException,
-			"different vector dimensions %d and %d", queryVectorLen, vectorColumnType.Width())
-	}
 
 	var res execPlan
 	res.root, err = b.factory.ConstructVectorSearch(

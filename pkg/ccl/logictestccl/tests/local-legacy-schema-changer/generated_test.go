@@ -215,6 +215,13 @@ func TestCCLLogic_read_committed(
 	runCCLLogicTest(t, "read_committed")
 }
 
+func TestCCLLogic_redact_descriptor(
+	t *testing.T,
+) {
+	defer leaktest.AfterTest(t)()
+	runCCLLogicTest(t, "redact_descriptor")
+}
+
 func TestCCLLogic_refcursor(
 	t *testing.T,
 ) {
@@ -248,13 +255,6 @@ func TestCCLLogic_subject(
 ) {
 	defer leaktest.AfterTest(t)()
 	runCCLLogicTest(t, "subject")
-}
-
-func TestCCLLogic_txn_retry(
-	t *testing.T,
-) {
-	defer leaktest.AfterTest(t)()
-	runCCLLogicTest(t, "txn_retry")
 }
 
 func TestCCLLogic_udf_params(

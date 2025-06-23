@@ -28,7 +28,6 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/config/zonepb"
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/rpc"
-	"github.com/cockroachdb/cockroach/pkg/rpc/rpcbase"
 	"github.com/cockroachdb/cockroach/pkg/server/serverpb"
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
 	"github.com/cockroachdb/cockroach/pkg/testutils"
@@ -478,14 +477,11 @@ func (n *Node) StatusClient(ctx context.Context) serverpb.StatusClient {
 		return existingClient
 	}
 
-	if !rpcbase.TODODRPC {
-		conn, err := n.rpcCtx.GRPCUnvalidatedDial(n.RPCAddr(), roachpb.Locality{}).Connect(ctx)
-		if err != nil {
-			log.Fatalf(context.Background(), "failed to initialize status client: %s", err)
-		}
-		return serverpb.NewStatusClient(conn)
+	conn, err := n.rpcCtx.GRPCUnvalidatedDial(n.RPCAddr(), roachpb.Locality{}).Connect(ctx)
+	if err != nil {
+		log.Fatalf(context.Background(), "failed to initialize status client: %s", err)
 	}
-	return nil // This should never happen
+	return serverpb.NewStatusClient(conn)
 }
 
 func (n *Node) logDir() string {

@@ -86,14 +86,6 @@ func UnderRace(t SkippableTest, args ...interface{}) {
 	}
 }
 
-// UnlessUnderRace skips this test if the race detector is not enabled.
-func UnlessUnderRace(t SkippableTest, args ...interface{}) {
-	t.Helper()
-	if !util.RaceEnabled {
-		maybeSkip(t, "disabled unless under race", args...)
-	}
-}
-
 // UnderRaceWithIssue skips this test if the race detector is enabled,
 // logging the given issue ID as the reason.
 func UnderRaceWithIssue(t SkippableTest, githubIssueID int, args ...interface{}) {
@@ -244,16 +236,4 @@ func maybeSkip(t SkippableTest, reason string, args ...interface{}) {
 	}
 
 	t.Skip(append([]interface{}{reason}, args...)...)
-}
-
-var miscNightly = envutil.EnvOrDefaultBool("COCKROACH_MISC_NIGHTLY", false)
-
-// IfNotMiscNightly skips this test unless the COCKROACH_MISC_NIGHTLY env var is
-// set to 'true'.
-//
-// Does not respect COCKROACH_FORCE_RUN_SKIPPED_TESTS.
-func IfNotMiscNightly(t SkippableTest) {
-	if !miscNightly {
-		t.Skip("only runs in Misc Nightly CI")
-	}
 }

@@ -27,7 +27,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/security"
 	"github.com/cockroachdb/cockroach/pkg/security/username"
 	"github.com/cockroachdb/cockroach/pkg/server/telemetry"
-	"github.com/cockroachdb/cockroach/pkg/storage/storageconfig"
+	"github.com/cockroachdb/cockroach/pkg/storage/storagepb"
 	"github.com/cockroachdb/cockroach/pkg/util/envutil"
 	"github.com/cockroachdb/cockroach/pkg/util/log/logflags"
 	"github.com/cockroachdb/cockroach/pkg/util/netutil/addr"
@@ -62,7 +62,7 @@ var storeSpecs base.StoreSpecList
 var goMemLimit int64
 var tenantIDFile string
 var localityFile string
-var encryptionSpecs storageconfig.EncryptionSpecList
+var encryptionSpecs storagepb.EncryptionSpecList
 
 // initPreFlagsDefaults initializes the values of the global variables
 // defined above.
@@ -697,6 +697,7 @@ func init() {
 	clientCmds = append(clientCmds, authCmds...)
 	clientCmds = append(clientCmds, nodeCmds...)
 	clientCmds = append(clientCmds, nodeLocalCmds...)
+	clientCmds = append(clientCmds, importCmds...)
 	clientCmds = append(clientCmds, userFileCmds...)
 	clientCmds = append(clientCmds, stmtDiagCmds...)
 	clientCmds = append(clientCmds, debugResetQuorumCmd)
@@ -763,7 +764,6 @@ func init() {
 		cliflagcfg.BoolFlag(f, &zipCtx.includeRangeInfo, cliflags.ZipIncludeRangeInfo)
 		cliflagcfg.BoolFlag(f, &zipCtx.includeStacks, cliflags.ZipIncludeGoroutineStacks)
 		cliflagcfg.BoolFlag(f, &zipCtx.includeRunningJobTraces, cliflags.ZipIncludeRunningJobTraces)
-		cliflagcfg.BoolFlag(f, &zipCtx.validateZipFile, cliflags.ZipValidateFile)
 	}
 	// List-files + Zip commands.
 	for _, cmd := range []*cobra.Command{debugZipCmd, debugListFilesCmd} {
@@ -814,6 +814,7 @@ func init() {
 	sqlCmds = append(sqlCmds, demoCmd.Commands()...)
 	sqlCmds = append(sqlCmds, stmtDiagCmds...)
 	sqlCmds = append(sqlCmds, nodeLocalCmds...)
+	sqlCmds = append(sqlCmds, importCmds...)
 	sqlCmds = append(sqlCmds, userFileCmds...)
 	for _, cmd := range sqlCmds {
 		clientflags.AddSQLFlags(cmd, &cliCtx.clientOpts, sqlCtx,
@@ -929,6 +930,25 @@ func init() {
 	{
 		cliflagcfg.BoolFlag(stmtDiagDeleteCmd.Flags(), &stmtDiagCtx.all, cliflags.StmtDiagDeleteAll)
 		cliflagcfg.BoolFlag(stmtDiagCancelCmd.Flags(), &stmtDiagCtx.all, cliflags.StmtDiagCancelAll)
+	}
+
+	// import dump command.
+	{
+		d := importDumpFileCmd.Flags()
+		cliflagcfg.BoolFlag(d, &importCtx.skipForeignKeys, cliflags.ImportSkipForeignKeys)
+		cliflagcfg.IntFlag(d, &importCtx.maxRowSize, cliflags.ImportMaxRowSize)
+		cliflagcfg.IntFlag(d, &importCtx.rowLimit, cliflags.ImportRowLimit)
+		cliflagcfg.BoolFlag(d, &importCtx.ignoreUnsupported, cliflags.ImportIgnoreUnsupportedStatements)
+		cliflagcfg.StringFlag(d, &importCtx.ignoreUnsupportedLog, cliflags.ImportLogIgnoredStatements)
+		cliflagcfg.StringFlag(d, &cliCtx.clientOpts.Database, cliflags.Database)
+
+		t := importDumpTableCmd.Flags()
+		cliflagcfg.BoolFlag(t, &importCtx.skipForeignKeys, cliflags.ImportSkipForeignKeys)
+		cliflagcfg.IntFlag(t, &importCtx.maxRowSize, cliflags.ImportMaxRowSize)
+		cliflagcfg.IntFlag(t, &importCtx.rowLimit, cliflags.ImportRowLimit)
+		cliflagcfg.BoolFlag(t, &importCtx.ignoreUnsupported, cliflags.ImportIgnoreUnsupportedStatements)
+		cliflagcfg.StringFlag(t, &importCtx.ignoreUnsupportedLog, cliflags.ImportLogIgnoredStatements)
+		cliflagcfg.StringFlag(t, &cliCtx.clientOpts.Database, cliflags.Database)
 	}
 
 	// sqlfmt command.
@@ -1479,7 +1499,7 @@ func mtStartSQLFlagsInit(cmd *cobra.Command) error {
 		if spec.BallastSize == nil {
 			// Only override if there was no ballast size specified to start
 			// with.
-			zero := storageconfig.SizeSpec{Capacity: 0, Percent: 0}
+			zero := storagepb.SizeSpec{Capacity: 0, Percent: 0}
 			spec.BallastSize = &zero
 		}
 	}

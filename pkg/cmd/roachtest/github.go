@@ -179,6 +179,7 @@ func (g *githubIssues) createPostRequest(
 	params map[string]string,
 ) (issues.PostRequest, error) {
 	var mention []string
+	var projColID int
 
 	var (
 		issueOwner    = spec.Owner
@@ -252,6 +253,7 @@ func (g *githubIssues) createPostRequest(
 				labels = append(labels, label)
 			}
 		}
+		projColID = teams[sl[0]].TriageColumnID
 	}
 
 	branch := os.Getenv("TC_BUILD_BRANCH")
@@ -286,6 +288,7 @@ func (g *githubIssues) createPostRequest(
 
 	return issues.PostRequest{
 		MentionOnCreate: mention,
+		ProjectColumnID: projColID,
 		PackageName:     "roachtest",
 		TestName:        issueName,
 		Labels:          labels,

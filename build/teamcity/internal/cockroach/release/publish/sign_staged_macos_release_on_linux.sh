@@ -15,7 +15,6 @@ fi
 
 dir="$(dirname $(dirname $(dirname $(dirname $(dirname $(dirname "${0}"))))))"
 source "$dir/teamcity-support.sh"  # For log_into_gcloud
-source "$dir/shlib.sh"
 
 curr_dir=$(pwd)
 
@@ -73,7 +72,7 @@ for product in cockroach cockroach-sql; do
     tar -czf "$target" "$base"
 
     zip crl.zip "$base/$product"
-    retry rcodesign notary-submit \
+    rcodesign notary-submit \
       --api-key-file "$curr_dir/.secrets/api_key.json" \
       --wait \
       crl.zip
