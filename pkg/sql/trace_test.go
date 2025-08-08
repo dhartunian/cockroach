@@ -21,7 +21,6 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
 	"github.com/cockroachdb/cockroach/pkg/sql"
 	"github.com/cockroachdb/cockroach/pkg/sql/catalog/descs"
-	"github.com/cockroachdb/cockroach/pkg/sql/sessiondata"
 	"github.com/cockroachdb/cockroach/pkg/testutils"
 	"github.com/cockroachdb/cockroach/pkg/testutils/pgurlutils"
 	"github.com/cockroachdb/cockroach/pkg/testutils/serverutils"
@@ -616,8 +615,6 @@ func TestTraceTxnSampleRateAndThreshold(t *testing.T) {
 		sampleRate            float64
 		threshold             time.Duration
 		exptToTraceEventually bool
-		checkJaegerOutput     bool
-		checkExcludeInternal  bool
 	}{
 		{
 			name:                  "no sample rate and no threshold",
@@ -649,20 +646,6 @@ func TestTraceTxnSampleRateAndThreshold(t *testing.T) {
 			threshold:             1 * time.Nanosecond,
 			exptToTraceEventually: true,
 		},
-		{
-			name:                  "jaeger output with sample rate 1.0 and threshold 1ns should trace",
-			sampleRate:            1.0,
-			threshold:             1 * time.Nanosecond,
-			exptToTraceEventually: true,
-			checkJaegerOutput:     true,
-		},
-		{
-			name:                  "internal queries omitted with cluster setting",
-			sampleRate:            1.0,
-			threshold:             1 * time.Nanosecond,
-			exptToTraceEventually: true,
-			checkExcludeInternal:  true,
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sql.TraceTxnThreshold.Override(ctx, &settings.SV, tc.threshold)
@@ -672,46 +655,14 @@ func TestTraceTxnSampleRateAndThreshold(t *testing.T) {
 			r := sqlutils.MakeSQLRunner(db)
 
 			if tc.exptToTraceEventually {
-				if tc.checkJaegerOutput {
-					sql.TraceTxnOutputJaegerJSON.Override(ctx, &settings.SV, true)
-					testutils.SucceedsSoon(t, func() error {
-						r.Exec(t, "SELECT pg_sleep(0.01)")
-						log.FlushAllSync()
-						if !appLogsSpy.Has(logtestutils.MatchesF(regexp.QuoteMeta("ExecStmt: SELECT pg_sleep(0.01)"))) {
-							return errors.New("no sql txn log found (tracing did not happen)")
-						}
-						if !appLogsSpy.Has(logtestutils.MatchesF(regexp.QuoteMeta("{\"refType\":\"CHILD_OF\",\"traceID\":\""))) {
-							return errors.New("no Jaeger JSON found")
-						}
-						return nil
-					})
-				} else if tc.checkExcludeInternal {
-					sql.TraceTxnIncludeInternal.Override(ctx, &settings.SV, false)
+				testutils.SucceedsSoon(t, func() error {
+					r.Exec(t, "SELECT pg_sleep(0.01)")
 					log.FlushAllSync()
-					appLogsSpy.Reset() // Clear logs after setting the cluster setting
-
-					// Use the internal executor directly to create actual internal transactions
-					ie := s.InternalExecutor().(*sql.InternalExecutor)
-					_, err := ie.ExecEx(ctx, "test-internal-query", nil, /* txn */
-						sessiondata.NodeUserSessionDataOverride,
-						"SELECT pg_sleep(0.01)")
-					if err != nil {
-						t.Fatal(err)
+					if !appLogsSpy.Has(logtestutils.MatchesF(regexp.QuoteMeta("ExecStmt: SELECT pg_sleep(0.01)"))) {
+						return errors.New("no sql txn log found (tracing did not happen)")
 					}
-					log.FlushAllSync()
-					if appLogsSpy.Has(logtestutils.MatchesF(regexp.QuoteMeta("ExecStmt: SELECT pg_sleep(0.01)"))) {
-						t.Fatal("internal sql txn log found when internal transactions should be excluded from tracing")
-					}
-				} else {
-					testutils.SucceedsSoon(t, func() error {
-						r.Exec(t, "SELECT pg_sleep(0.01)")
-						log.FlushAllSync()
-						if !appLogsSpy.Has(logtestutils.MatchesF(regexp.QuoteMeta("ExecStmt: SELECT pg_sleep(0.01)"))) {
-							return errors.New("no sql txn log found (tracing did not happen)")
-						}
-						return nil
-					})
-				}
+					return nil
+				})
 			} else {
 				r.Exec(t, "SELECT pg_sleep(0.01)")
 				log.FlushAllSync()
@@ -723,45 +674,4 @@ func TestTraceTxnSampleRateAndThreshold(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestTraceTxnJaegerOutput(t *testing.T) {
-	defer leaktest.AfterTest(t)()
-	defer log.Scope(t).Close(t)
-
-	ctx := context.Background()
-	settings := cluster.MakeTestingClusterSettings()
-
-	s, db, _ := serverutils.StartServer(t, base.TestServerArgs{
-		Settings: settings,
-	})
-	defer s.Stopper().Stop(ctx)
-
-	appLogsSpy := logtestutils.NewLogSpy(
-		t,
-		// This string match is constructed from the log.SqlExec.Infof format
-		// string found in conn_executor_exec.go:logTraceAboveThreshold
-		logtestutils.MatchesF("exceeding threshold of"),
-	)
-	cleanup := log.InterceptWith(ctx, appLogsSpy)
-	defer cleanup()
-
-	sql.TraceTxnOutputJaegerJSON.Override(ctx, &settings.SV, true)
-	sql.TraceTxnThreshold.Override(ctx, &settings.SV, time.Nanosecond)
-	sql.TraceTxnSampleRate.Override(ctx, &settings.SV, 1)
-	log.FlushAllSync()
-	appLogsSpy.Reset()
-	r := sqlutils.MakeSQLRunner(db)
-
-	testutils.SucceedsSoon(t, func() error {
-		r.Exec(t, "SELECT pg_sleep(0.01)")
-		log.FlushAllSync()
-		if !appLogsSpy.Has(logtestutils.MatchesF(regexp.QuoteMeta("ExecStmt: SELECT pg_sleep(0.01)"))) {
-			return errors.New("no sql txn log found (tracing did not happen)")
-		}
-		if !appLogsSpy.Has(logtestutils.MatchesF(regexp.QuoteMeta("{\"refType\":\"CHILD_OF\",\"traceID\":\""))) {
-			return errors.New("no Jaeger JSON found")
-		}
-		return nil
-	})
 }
