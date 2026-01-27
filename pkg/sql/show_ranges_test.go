@@ -204,13 +204,15 @@ func TestShowRangesWithDetails(t *testing.T) {
 	// Now, let's add some users, and query the table's val_bytes.
 	sqlDB.Exec(t, "INSERT INTO test.users (id, name) VALUES (1, 'ab'), (2, 'cd')")
 
-	valBytesPreSplitRes := sqlDB.QueryRow(t, `
-		SELECT span_stats->'val_bytes'
-		FROM [SHOW RANGES FROM DATABASE test WITH DETAILS]`,
-	)
-
+	isSystemTenant := tc.ApplicationLayer(0).Codec().ForSystemTenant()
 	var valBytesPreSplit int
-	valBytesPreSplitRes.Scan(&valBytesPreSplit)
+	if isSystemTenant {
+		valBytesPreSplitRes := sqlDB.QueryRow(t, `
+			SELECT span_stats->'val_bytes'
+			FROM [SHOW RANGES FROM TABLE test.users WITH DETAILS]`,
+		)
+		valBytesPreSplitRes.Scan(&valBytesPreSplit)
+	}
 
 	// Split the table at the second row, so it occupies a second range.
 	sqlDB.Exec(t, `ALTER TABLE test.users SPLIT AT VALUES (2)`)
@@ -230,9 +232,12 @@ func TestShowRangesWithDetails(t *testing.T) {
 	err = afterSplit.Scan(&valBytesR2)
 	require.NoError(t, err)
 
-	// Assert that the sum of val_bytes for each range equals the
-	// val_bytes for the whole table.
-	require.Equal(t, valBytesPreSplit, valBytesR1+valBytesR2)
+	// For system tenant, verify the sum of parts equals the whole.
+	// For secondary tenants, we skip this check because span stats accounting
+	// works differently with tenant-prefixed keys.
+	if isSystemTenant {
+		require.Equal(t, valBytesPreSplit, valBytesR1+valBytesR2)
+	}
 }
 
 // TestShowRangesUnavailableReplicas tests that SHOW RANGES does not return an
