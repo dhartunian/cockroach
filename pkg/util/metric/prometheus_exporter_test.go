@@ -228,6 +228,63 @@ func TestPrometheusExporterNativeHistogram(t *testing.T) {
 	require.Empty(t, output)
 }
 
+func TestPrometheusExporterNativeHistogramAllDistributions(t *testing.T) {
+	defer func(enabled bool) {
+		nativeHistogramsEnabled = enabled
+	}(nativeHistogramsEnabled)
+	nativeHistogramsEnabled = true
+
+	r := NewRegistry()
+
+	// Test that native histograms work for uniform distributions too,
+	// not just exponential.
+	uniformHist := NewHistogram(HistogramOptions{
+		Duration: time.Second,
+		Mode:     HistogramModePrometheus,
+		Metadata: Metadata{
+			Name: "uniform_histogram",
+		},
+		BucketConfig: Percent100Buckets,
+	})
+	r.AddMetric(uniformHist)
+	uniformHist.RecordValue(50)
+
+	var buf bytes.Buffer
+	pe := MakePrometheusExporter()
+
+	// Protobuf format should include native histogram data.
+	err := pe.ScrapeAndPrintAsText(
+		&buf, expfmt.FmtProtoText, func(exporter *PrometheusExporter) {
+			exporter.ScrapeRegistry(
+				r, WithIncludeChildMetrics(false),
+				WithIncludeAggregateMetrics(true),
+			)
+		},
+	)
+	require.NoError(t, err)
+	protoOutput := buf.String()
+	require.Regexp(t, "schema:", protoOutput)
+	require.Regexp(t, "zero_count:", protoOutput)
+
+	buf.Reset()
+
+	// Text format should still work and include classic bucket data.
+	err = pe.ScrapeAndPrintAsText(
+		&buf, expfmt.FmtText, func(exporter *PrometheusExporter) {
+			exporter.ScrapeRegistry(
+				r, WithIncludeChildMetrics(false),
+				WithIncludeAggregateMetrics(true),
+			)
+		},
+	)
+	require.NoError(t, err)
+	textOutput := buf.String()
+	require.Contains(t, textOutput, "uniform_histogram_bucket")
+	require.Contains(t, textOutput, "uniform_histogram_count 1")
+	// Text format does not support native histogram fields.
+	require.NotContains(t, textOutput, "schema:")
+}
+
 func TestPrometheusExporterStaticLabels(t *testing.T) {
 	tests := []struct {
 		name            string
