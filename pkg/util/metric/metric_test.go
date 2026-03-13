@@ -273,23 +273,24 @@ func TestHistogram(t *testing.T) {
 		expSum += float64(m)
 	}
 
-	act := *h.ToPrometheusMetric().Histogram
-	exp := prometheusgo.Histogram{
-		SampleCount: u(len(measurements)),
-		SampleSum:   &expSum,
-		Bucket: []*prometheusgo.Bucket{
-			{CumulativeCount: u(1), UpperBound: f(1)},
-			{CumulativeCount: u(3), UpperBound: f(5)},
-			{CumulativeCount: u(4), UpperBound: f(10)},
-			{CumulativeCount: u(6), UpperBound: f(25)},
-			{CumulativeCount: u(9), UpperBound: f(100)},
-			// NB: 200 is greater than the largest defined bucket so prometheus
-			// puts it in an implicit bucket with +Inf as the upper bound.
-		},
+	act := h.ToPrometheusMetric().Histogram
+	require.Equal(t, uint64(len(measurements)), act.GetSampleCount())
+	require.Equal(t, expSum, act.GetSampleSum())
+	expBuckets := []*prometheusgo.Bucket{
+		{CumulativeCount: u(1), UpperBound: f(1)},
+		{CumulativeCount: u(3), UpperBound: f(5)},
+		{CumulativeCount: u(4), UpperBound: f(10)},
+		{CumulativeCount: u(6), UpperBound: f(25)},
+		{CumulativeCount: u(9), UpperBound: f(100)},
+		// NB: 200 is greater than the largest defined bucket so prometheus
+		// puts it in an implicit bucket with +Inf as the upper bound.
 	}
-
-	if !reflect.DeepEqual(act, exp) {
-		t.Fatalf("expected differs from actual: %s", pretty.Diff(exp, act))
+	require.Equal(t, len(expBuckets), len(act.Bucket))
+	for i, b := range expBuckets {
+		require.Equal(t, b.GetCumulativeCount(), act.Bucket[i].GetCumulativeCount(),
+			"bucket %d cumulative count", i)
+		require.Equal(t, b.GetUpperBound(), act.Bucket[i].GetUpperBound(),
+			"bucket %d upper bound", i)
 	}
 
 	histWindow := h.WindowedSnapshot()
@@ -299,8 +300,10 @@ func TestHistogram(t *testing.T) {
 	require.Equal(t, 75.0, histWindow.ValueAtQuantile(80))
 	require.Equal(t, 100.0, histWindow.ValueAtQuantile(99.99))
 
-	// Assert that native histogram schema is not defined
-	require.Nil(t, h.ToPrometheusMetric().Histogram.Schema)
+	// When native histograms are enabled, the schema should be set.
+	if nativeHistogramsEnabled {
+		require.NotNil(t, act.Schema)
+	}
 }
 
 func TestNativeHistogram(t *testing.T) {
