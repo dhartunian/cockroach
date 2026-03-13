@@ -326,7 +326,7 @@ func HdrEnabled() bool {
 // conventional and native histograms are exported.
 const useNativeHistogramsEnvVar = "COCKROACH_ENABLE_PROMETHEUS_NATIVE_HISTOGRAMS"
 
-var nativeHistogramsEnabled = envutil.EnvOrDefaultBool(useNativeHistogramsEnvVar, false)
+var nativeHistogramsEnabled = envutil.EnvOrDefaultBool(useNativeHistogramsEnvVar, true)
 
 // nativeHistogramsBucketFactorEnvVar can be used to override the default
 // bucket size exponential factor for Prometheus native histograms, if enabled.
@@ -443,7 +443,7 @@ func newHistogram(
 	opts := prometheus.HistogramOpts{
 		Buckets: buckets,
 	}
-	if bucketConfig.distribution == Exponential && nativeHistogramsEnabled {
+	if nativeHistogramsEnabled {
 		opts.NativeHistogramBucketFactor = nativeHistogramsBucketFactor
 		opts.NativeHistogramMaxBucketNumber = uint32(float64(len(buckets)) * nativeHistogramsBucketCountMultiplier)
 	}

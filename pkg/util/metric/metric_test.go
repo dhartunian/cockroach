@@ -1029,34 +1029,129 @@ func TestHistogramVec(t *testing.T) {
 }
 
 func BenchmarkHistogramRecordValue(b *testing.B) {
-	h := NewHistogram(HistogramOptions{
-		Metadata: Metadata{
-			Name:       "my.test.metric",
-			MetricType: prometheusgo.MetricType_HISTOGRAM,
-		},
-		Duration:     0,
-		BucketConfig: IOLatencyBuckets,
-		Mode:         HistogramModePrometheus,
-	})
+	for _, tc := range []struct {
+		name          string
+		nativeEnabled bool
+	}{
+		{"classic-only", false},
+		{"classic+native", true},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			origEnabled := nativeHistogramsEnabled
+			nativeHistogramsEnabled = tc.nativeEnabled
+			defer func() { nativeHistogramsEnabled = origEnabled }()
 
-	b.ResetTimer()
-	r, _ := randutil.NewTestRand()
+			h := NewHistogram(HistogramOptions{
+				Metadata: Metadata{
+					Name:       "my.test.metric",
+					MetricType: prometheusgo.MetricType_HISTOGRAM,
+				},
+				Duration:     10 * time.Second,
+				BucketConfig: IOLatencyBuckets,
+				Mode:         HistogramModePrometheus,
+			})
 
-	b.Run("insert integers", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			h.RecordValue(int64(i))
-		}
-	})
-	b.Run("insert zero", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			h.RecordValue(0)
-		}
-	})
-	b.Run("random integers", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			h.RecordValue(int64(randutil.RandIntInRange(r, int(IOLatencyBuckets.min), int(IOLatencyBuckets.max))))
-		}
-	})
+			r, _ := randutil.NewTestRand()
+
+			b.Run("insert-sequential", func(b *testing.B) {
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					h.RecordValue(int64(i))
+				}
+			})
+			b.Run("insert-zero", func(b *testing.B) {
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					h.RecordValue(0)
+				}
+			})
+			b.Run("insert-random", func(b *testing.B) {
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					h.RecordValue(int64(randutil.RandIntInRange(
+						r, int(IOLatencyBuckets.min), int(IOLatencyBuckets.max))))
+				}
+			})
+		})
+	}
+}
+
+func BenchmarkHistogramWindowedSnapshot(b *testing.B) {
+	for _, tc := range []struct {
+		name          string
+		nativeEnabled bool
+	}{
+		{"classic-only", false},
+		{"classic+native", true},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			origEnabled := nativeHistogramsEnabled
+			nativeHistogramsEnabled = tc.nativeEnabled
+			defer func() { nativeHistogramsEnabled = origEnabled }()
+
+			h := NewHistogram(HistogramOptions{
+				Metadata: Metadata{
+					Name:       "my.test.metric",
+					MetricType: prometheusgo.MetricType_HISTOGRAM,
+				},
+				Duration:     10 * time.Second,
+				BucketConfig: IOLatencyBuckets,
+				Mode:         HistogramModePrometheus,
+			})
+
+			r, _ := randutil.NewTestRand()
+			// Pre-populate with random observations.
+			for i := 0; i < 10000; i++ {
+				h.RecordValue(int64(randutil.RandIntInRange(
+					r, int(IOLatencyBuckets.min), int(IOLatencyBuckets.max))))
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = h.WindowedSnapshot()
+			}
+		})
+	}
+}
+
+func BenchmarkHistogramToPrometheusMetric(b *testing.B) {
+	for _, tc := range []struct {
+		name          string
+		nativeEnabled bool
+	}{
+		{"classic-only", false},
+		{"classic+native", true},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			origEnabled := nativeHistogramsEnabled
+			nativeHistogramsEnabled = tc.nativeEnabled
+			defer func() { nativeHistogramsEnabled = origEnabled }()
+
+			h := NewHistogram(HistogramOptions{
+				Metadata: Metadata{
+					Name:       "my.test.metric",
+					MetricType: prometheusgo.MetricType_HISTOGRAM,
+				},
+				Duration:     10 * time.Second,
+				BucketConfig: IOLatencyBuckets,
+				Mode:         HistogramModePrometheus,
+			})
+
+			r, _ := randutil.NewTestRand()
+			// Pre-populate with random observations.
+			for i := 0; i < 10000; i++ {
+				h.RecordValue(int64(randutil.RandIntInRange(
+					r, int(IOLatencyBuckets.min), int(IOLatencyBuckets.max))))
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = h.ToPrometheusMetric()
+			}
+		})
+	}
 }
 
 func TestMetadataGetLabels(t *testing.T) {
